@@ -1,0 +1,194 @@
+
+---
+title: "Fitbit"
+author: "Rama"
+date: "2022-10-28"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Latar Belakang 
+
+Studi Kasus ini menggunakan data set  Bellabeat Fitbitt "(found here: https://www.kaggle.com/datasets/arashnic/fitbit)." 
+
+### Tentang Perusahaan
+
+Urška Sršen dan Sando Mur mendirikan Bellabeat, sebuah perusahaan teknologi tinggi yang memproduksi produk pintar yang berfokus pada kesehatan. Pada tahun 2016, Bellabeat telah membuka kantor di seluruh dunia dan meluncurkan beberapa produk. Mengumpulkan data tentang aktivitas, tidur, stres, dan kesehatan reproduksi telah memungkinkan Bellabeat untuk memberdayakan wanita dengan pengetahuan tentang kesehatan dan kebiasaan mereka sendiri.
+
+### Tiga Pertanyaan
+1.	Apa saja tren dalam penggunaan perangkat pintar?
+2.	Bagaimana tren ini dapat diterapkan pada pelanggan Bellabeat?
+3.	Bagaimana tren ini dapat membantu memengaruhi strategi pemasaran Bellabeat?
+
+## Tahap Persiapan
+menjalankan library yang dibutuhkan
+```{r}
+library(dplyr)
+library(tidyverse)
+library(lubridate)
+library(ggplot2)
+library(janitor)
+library(skimr)
+library(scales)
+```
+
+## Proses
+
+
+- total step(hour)
+```{r}
+hourly_steps <- read.csv("hourlySteps_merged.csv") %>% clean_names()
+hourly_steps$activity_hour <- mdy_hms(hourly_steps$activity_hour)
+
+```
+
+- total sleep
+```{r}
+sleepday <- read_csv("total_sleep.csv") %>% clean_names()
+sleepday <- sleepday %>% rename(date = sleep_day)%>% select(-c(x1))
+
+```
+pembersihan nama kolom dengan library janitor yaitu "clean_names()" dan menghilangkan kolom "x1" yang tidak dibutuhkan
+
+- total step
+```{r}
+total_step <- read_csv("step_day.csv") %>% clean_names()
+total_step <- total_step %>% select(-c(x1))
+```
+- calories
+```{r}
+calories <- read_csv("dailyCalories_merged.csv") %>% clean_names()
+calories$activity_day <- mdy(calories$activity_day)
+calories <- calories %>% rename(date=activity_day)
+```
+mengubah kolom "activity_day" menjadi format tanggal menggunakan mdy(month, day, year) dan mengubah nama kolom menjadi "date"
+
+
+### menggabungkan semua tabel
+```{r}
+#join all tables
+daily_activity <- full_join(total_step, sleepday, by= c('id', 'date'))
+daily_activity <-full_join(daily_activity, calories, by=c('id','date'))
+```
+penggabungan tabel berdasarkan "id", dan "date" menggunakan fungsi full join
+
+```{r}
+head(daily_activity)
+```
+
+
+## Analyze 
+
+analisis cepat menggunakan fungsi summary dari library "skimr"
+```{r}
+summary(daily_activity)
+```
+hasil analisis cepat menampilkan analisis dari masing-masing kolom. pada kolom date, min "2016-04-12", max "2016-05-12" yang menjelaskan data yang di analisis adalah "**12 april 2016**" sampai "**12 mei 2016**"
+
+### rata-rata langkah kaki perhari
+
+```{r}
+daily_activity %>% 
+  group_by(id) %>% 
+  summarise(average_step = mean(step_day, na.rm=TRUE))
+```
+data di atas merupakan rata-rata langkah berdasarkan id, data yang ditampilkan ada 33 baris, berarti ada 33 orang yang sedang di analisis
+
+### aktivitas user
+```{r message=FALSE, warning=FALSE}
+daily_activity %>% 
+  group_by(date) %>% 
+  summarise(number_users = n()) %>% 
+  ggplot(aes(date, number_users))+
+  geom_line(size = 2, col='purple')+
+  geom_point(size = 3, col='blue', alpha=0.9)+
+  ylim(0,35)
+
+```
+
+aktivitas user selama sebulan dari bulan april hingga mei, mengalami penurunan 
+
+### total tidur vs aktivitas
+```{r message=FALSE, warning=FALSE}
+daily_activity %>%
+  drop_na() %>% 
+  summarise(total_hours_asleep = (total_minutes_asleep/60), step_day) %>%
+  ggplot(aes(total_hours_asleep, step_day))+
+  geom_point()+
+  geom_smooth(method = lm)+
+  xlim(0,12)
+```
+
+tidak ada hubungannya antara semakin lama seseorang tidur dengan semakin banyak aktivitas seseorang
+
+### aktivitas vs kalori
+
+```{r}
+daily_activity %>% 
+  drop_na() %>% 
+  group_by(id) %>% 
+  ggplot(aes(step_day, calories))+
+  geom_point()+
+  geom_smooth(method = "loess")
+```
+
+terdapat hubungan antara aktivitas dan kalori yang dikeluarkan, semakin banyak seseorang melakukan aktivitas, semakin banyak kalori yang dikeluarkan 
+
+### pola antara tidur vs aktivitas vs kalori
+
+```{r message=FALSE, warning=FALSE}
+
+daily_activity %>%  drop_na() %>% 
+  summarise(calories,
+            hours_asleep = (total_minutes_asleep/60),
+            total_step = (step_day)) %>% 
+  ggplot(aes(total_step, calories, col=hours_asleep))+
+  geom_point(size = 4, alpha = 0.4)+
+  geom_smooth(method = lm, col ='black', size = 1) +
+  labs(title ='hubungan antara tidur, aktivitas, kalori')
+```
+
+pola menunjukkan hubungan yang positif antara tidur, aktivitas, dan kalori
+
+
+
+### rata-rata aktivitas harian
+
+```{r message=FALSE, warning=FALSE}
+
+daily_activity %>% 
+  mutate(weekday = wday(date, label = TRUE)) %>% 
+  group_by(weekday) %>% 
+  summarise(average_step = mean(step_day, na.rm=TRUE)) %>% 
+  arrange(weekday) %>% 
+  ggplot(aes(x=weekday, y=average_step, fill=weekday))+
+  geom_col()+
+  geom_text(aes(label=round(average_step, digits =0), vjust = -0.5))
+
+```
+
+rata-rata aktivitas terbanyak ada di hari sabtu dan rata-rata aktivitas terendah ada di hari minggu
+
+
+### aktivitas berdasarkan jam
+
+```{r}
+hourly_steps %>% 
+  mutate(hour = hour(activity_hour)) %>% 
+  group_by(hour) %>% 
+  summarise (total_step = sum(step_total)) %>% 
+  ggplot(aes(hour, total_step))+ 
+  geom_line(color='blue')+
+  scale_y_continuous(labels=comma)
+```
+
+aktivitas pengguna mulai meningkat dari "05" AM dan aktivitas mulai menurun di "19" PM. Aktivitas tersebut seperti orang yang berkerja mulai pagi hari dan berakhir di malam hari, dimana siang hari adalah aktivitas tersibuk
+
+## Kesimpulan
+
+* Semakin banyak seseorang melakukan aktivitas semakin tinggi kalori yang dikeluarkan. sementara semakin banyak seseorang tertidur, tidak mempengaruhi aktivitas seseorang apakah lebih aktif atau tidak
+* Tren yang ditemukan, aktivitas rata-rata harian tertinggi berada di hari sabtu, pengguna lebih sering melakukan aktivitas di hari sabtu dan lebih rendah aktivitasnya di hari minggu. pengguna lebih menghabiskan waktu di dalam rumah di hari minggu
+* Melihat hasil analisis dan temuan-temuan tren, dapat disimpulkan tiap aktivitas terekam di aplikasi dan berguna bagi seseorang untuk melacak aktivitas hariannya
